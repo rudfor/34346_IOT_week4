@@ -61,6 +61,7 @@ String screen_msg = "";
 String serial_received = "";
 
 long lastMsg = 0;
+long lastMsg2 = 0;
 int value = 0;
 String dString = "";
 WiFiClient espClient;
@@ -96,14 +97,16 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   } else if ((char)payload[0] == 'P') {
     client.publish(outTopic, "Servo Request - deprecated!");
     Serial.println("Servo Request - deprecated!"); // debug message
-  } else if (strcmp(messageBuffer, "LED_off")) {
+  } else if (strcmp(messageBuffer, "LED_off")==0) {
     client.publish(outTopic, "LED OFF!");
     Serial.println("LED to be switched off"); // debug message
     Serial.println(messageBuffer); // debug message
+    snprintf(msg_mtqq, 75, "mtqq: %ls", messageBuffer);    
     digitalWrite(LED, HIGH);
-  } else if (strcmp(messageBuffer,"LED_on")) {
+  } else if (strcmp(messageBuffer,"LED_on")==0) {
     client.publish(outTopic, "LED ON!");
     Serial.println("LED to be switched on"); // debug message
+    snprintf(msg_mtqq, 75, "mtqq: %ls", messageBuffer);
     digitalWrite(LED, LOW);
   } else {
   //snprintf(msg, 75, "Unknown command: %s, do nothing!", (char)payload[0]);
@@ -147,7 +150,6 @@ void screen_display(String msg_title, String msg_serial, String msg_mtqq){
   display.println(msg_serial.c_str());
   display.println(msg_mtqq.c_str());
   display.display(); 
-  delay(5000);
 }
 
 /*********************************
@@ -212,10 +214,9 @@ void loop() {
     }
 
   long now2 = millis();
-  if (now2 - lastMsg > 5000) {
-    lastMsg = now2;
+  if (now2 - lastMsg2 > 5000) {
+    lastMsg2 = now2;
     screen_display("mtqq:", msg_serial, msg_mtqq);
-    delay(5000);
   }
 
   // if serial data available, process it
