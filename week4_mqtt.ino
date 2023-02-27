@@ -26,8 +26,8 @@
 #include <Servo.h> // for servo movement
 //const char* mqttServer = "iot.eclipse.org";
 const char* mqttServer = "public.mqtthq.com";
-const char* inTopic = "esp8266_in";
-const char* outTopic = "esp8266_out";
+const char* inTopic = "esp8266_ruft_in";
+const char* outTopic = "esp8266_ruft_out";
 char msg[75];
 long lastMsg = 0;
 int value = 0;
@@ -37,6 +37,7 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 Servo myservo;
 WiFiManager wifiManager;
+
 /*
 * control the servo to mimic a button press action
 * duration in seconds, posStart & posEnd in degrees
@@ -50,6 +51,7 @@ void buttonPress(unsigned int duration, unsigned int posStart, unsigned int posE
   myservo.write(posStart); // back to starting position
   delay(100); // let servo stops properly
   }
+
 /*
 * handle message arrived from MQTT and do the real actions depending on the command
 * payload format: start with a single character
@@ -75,7 +77,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     client.publish(outTopic, "Resetting wifi!");
     Serial.println("Resetting wifi!"); // debug message
     wifiManager.resetSettings(); // reset all wifi settings, should back to AP mode
-} else if ((char)payload[0] == 'P') {
+  } else if ((char)payload[0] == 'P') {
     if (length > 1) {
       for (int i = 1; i < length; i++) {
         dString = "";
@@ -97,12 +99,12 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     snprintf(msg, 75, "Button pressed for %d second(s) at %d degrees!", duration, posEnd);
     client.publish(outTopic, msg);
     Serial.println(msg); // debug message
-} else {
-//snprintf(msg, 75, "Unknown command: %s, do nothing!", (char)payload[0]);
-snprintf(msg, 75, "Unknown command: %c, do nothing!", (char)payload[0]);
-client.publish(outTopic, msg);
-Serial.println(msg); // debug message
-}
+  } else {
+  //snprintf(msg, 75, "Unknown command: %s, do nothing!", (char)payload[0]);
+  snprintf(msg, 75, "Unknown command: %c, do nothing!", (char)payload[0]);
+  client.publish(outTopic, msg);
+  Serial.println(msg); // debug message
+  }
 }
 /*
 * connect to MQTT with a client ID, subscribe & publish to corresponding topics
@@ -116,7 +118,7 @@ void reconnect() {
       Serial.println("connected");
       client.publish(outTopic, "Hello world, I'm ESP8266Client1");
       client.subscribe(inTopic);
-      } else {
+    } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
       Serial.println(" try again in 5 seconds");
@@ -142,19 +144,17 @@ void setup() {
 
 void loop() {
   // if not connected to mqtt server, keep trying to reconnect
-  if (!client.connected()) {
-    reconnect();
-    }
+  if (!client.connected()) {reconnect();}
 
   client.loop(); // wait for message packet to come & periodically ping the server
   // to show that ESP8266 is alive, publish a message every 2 seconds to the MQTT broker
   long now = millis();
   if (now - lastMsg > 2000) {
-  lastMsg = now;
-  ++value;
-  snprintf(msg, 75, "Hello world #%ld", value);
-  Serial.print("Publish message: ");
-  Serial.println(msg);
-  client.publish(outTopic, msg);
+    lastMsg = now;
+    ++value;
+    snprintf(msg, 75, "Hello world #%ld", value);
+    Serial.print("Publish message: ");
+    Serial.println(msg);
+    client.publish(outTopic, msg);
+    }
   }
-}
