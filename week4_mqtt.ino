@@ -23,34 +23,49 @@
 #include <ESP8266WebServer.h>
 #include <WiFiManager.h>
 #include <PubSubClient.h> // for MQTT connection
-#include <Servo.h> // for servo movement
+#include <Wire.h> // I2C for Display
+#include <Adafruit_GFX.h> // Display
+#include <Adafruit_SSD1306.h> // Display
+
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define LED D0            // Led in NodeMCU at pin GPIO16 (D0)
+
+// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+// The pins for I2C are defined by the Wire-library. 
+// On an arduino UNO:       A4(SDA), A5(SCL)
+// On an arduino MEGA 2560: 20(SDA), 21(SCL)
+// On an arduino LEONARDO:   2(SDA),  3(SCL), ...
+#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+#define NUMFLAKES     10 // Number of snowflakes in the animation example
+
+#define LOGO_HEIGHT   16
+#define LOGO_WIDTH    16
+static const unsigned char PROGMEM logo_bmp[] =
+{ 0b00000000, 0b11000000, 0b00000001, 0b11000000, 0b00000001, 0b11000000, 0b00000011, 0b11100000,
+  0b11110011, 0b11100000, 0b11111110, 0b11111000, 0b01111110, 0b11111111, 0b00110011, 0b10011111,
+  0b00011111, 0b11111100, 0b00001101, 0b01110000, 0b00011011, 0b10100000, 0b00111111, 0b11100000,
+  0b00111111, 0b11110000, 0b01111100, 0b11110000, 0b01110000, 0b01110000, 0b00000000, 0b00110000 };
+
 //const char* mqttServer = "iot.eclipse.org";
 const char* mqttServer = "public.mqtthq.com";
 const char* inTopic = "esp8266_ruft_in";
 const char* outTopic = "esp8266_ruft_out";
 char msg[75];
+char msg_serial[75];
+char msg_mtqq[75];
+String screen_msg = "";
+String serial_received = "";
+
 long lastMsg = 0;
 int value = 0;
-int duration, posStart, posEnd;
 String dString = "";
 WiFiClient espClient;
 PubSubClient client(espClient);
-Servo myservo;
 WiFiManager wifiManager;
-
-/*
-* control the servo to mimic a button press action
-* duration in seconds, posStart & posEnd in degrees
-*/
-void buttonPress(unsigned int duration, unsigned int posStart, unsigned int posEnd) {
-  myservo.write(posStart); // make sure at starting position
-  delay(100); // let servo stops properly
-  // start the movement
-  myservo.write(posEnd); // move to ending position
-  delay(duration*1000); // stay there for a given duration
-  myservo.write(posStart); // back to starting position
-  delay(100); // let servo stops properly
-  }
 
 /*
 * handle message arrived from MQTT and do the real actions depending on the command
@@ -62,50 +77,43 @@ void buttonPress(unsigned int duration, unsigned int posStart, unsigned int posE
 */
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
   // debugging message at serial monitor
+  char messageBuffer[30];  //somewhere to put the message
+  memcpy(messageBuffer, payload, length);  //copy in the payload
+  messageBuffer[length] = '\0';  //convert copied payload to a C style string
+
+  String topicStr = topic; 
+  String recv_payload = String(( char *) payload);
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
-  }
+  for (int i = 0; i < length; i++) {Serial.print((char)payload[i]);}
   Serial.println();
   // parse the payload message
-  duration = 1;
-  posStart = 0;
-  posEnd = 90;
   if ((char)payload[0] == 'R') {
     client.publish(outTopic, "Resetting wifi!");
     Serial.println("Resetting wifi!"); // debug message
     wifiManager.resetSettings(); // reset all wifi settings, should back to AP mode
   } else if ((char)payload[0] == 'P') {
-    if (length > 1) {
-      for (int i = 1; i < length; i++) {
-        dString = "";
-        if ((char)payload[i] == 'D') { // modify 'duration', default 1 second
-          for (int j = 1; j < 4; j++) {
-            dString += (char)payload[i+j];
-          }
-          duration = dString.toInt();
-        }
-        if ((char)payload[i] == 'E') { // modify 'ending position', default at 90 degress
-          for (int j = 1; j < 4; j++) {
-            dString += (char)payload[i+j];
-          }
-        posEnd = dString.toInt();
-        }
-      }
-    }
-    buttonPress(duration, posStart, posEnd); // perform servo press
-    snprintf(msg, 75, "Button pressed for %d second(s) at %d degrees!", duration, posEnd);
-    client.publish(outTopic, msg);
-    Serial.println(msg); // debug message
+    client.publish(outTopic, "Servo Request - deprecated!");
+    Serial.println("Servo Request - deprecated!"); // debug message
+  } else if (strcmp(messageBuffer, "LED_off")) {
+    client.publish(outTopic, "LED OFF!");
+    Serial.println("LED to be switched off"); // debug message
+    Serial.println(messageBuffer); // debug message
+    digitalWrite(LED, HIGH);
+  } else if (strcmp(messageBuffer,"LED_on")) {
+    client.publish(outTopic, "LED ON!");
+    Serial.println("LED to be switched on"); // debug message
+    digitalWrite(LED, LOW);
   } else {
   //snprintf(msg, 75, "Unknown command: %s, do nothing!", (char)payload[0]);
   snprintf(msg, 75, "Unknown command: %c, do nothing!", (char)payload[0]);
   client.publish(outTopic, msg);
+  snprintf(msg_mtqq, 75, "mtqq: %ls", msg);
   Serial.println(msg); // debug message
   }
 }
+
 /*
 * connect to MQTT with a client ID, subscribe & publish to corresponding topics
 * if failed, reconnect in 5 seconds
@@ -114,9 +122,9 @@ void reconnect() {
   // loop until reconnected
   while (!client.connected()) {
     Serial.print("Attempting to make MQTT connection...");
-    if (client.connect("ESP8266Client1")) { // ESP8266CLient1 is a client ID of this ESP8266 for MQTT
+    if (client.connect("ESP8266_RUFT1")) { // ESP8266CLient1 is a client ID of this ESP8266 for MQTT
       Serial.println("connected");
-      client.publish(outTopic, "Hello world, I'm ESP8266Client1");
+      client.publish(outTopic, "Hello world, I'm ESP8266_RUFT1");
       client.subscribe(inTopic);
     } else {
       Serial.print("failed, rc=");
@@ -127,12 +135,52 @@ void reconnect() {
     }
   }
 
+void screen_display(String msg_title, String msg_serial, String msg_mtqq){
+    // Clear the buffer
+  display.clearDisplay();
+ 
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 10);
+  // Display static text
+  display.println(msg_title.c_str());
+  display.println(msg_serial.c_str());
+  display.println(msg_mtqq.c_str());
+  display.display(); 
+  delay(5000);
+}
+
+/*********************************
+* SETUP
+/********************************/
 void setup() {
+  pinMode(LED, OUTPUT);    // LED pin as output
+  Wire.begin();        // join I2C bus (address optional for master)
+
   pinMode(LED_BUILTIN, OUTPUT); // just for LED output
   Serial.begin(115200); // connect to serial mainly for debugging
-  // prepare servo
-  myservo.attach(2); // attach the servo at GIO2 at it is right next to 3.3V and GND pins
-  myservo.write(0); // make sure start from 0
+
+  // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;); // Don't proceed, loop forever
+  }
+  // Show initial display buffer contents on the screen --
+  // the library initializes this with an Adafruit splash screen.
+  display.display();
+  delay(2000); // Pause for 2 seconds
+
+  // Clear the buffer
+  display.clearDisplay();
+ 
+  display.setTextSize(2);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 10);
+  // Display static text
+  display.println("mtqq Example");
+  display.display(); 
+  delay(5000);
+
   // use WiFiManger to manage wifi setup
   // if not auto connect, connect to 'myAP' wifi network, access 192.168.4.1 to do a local wifi setup
   wifiManager.autoConnect("myAP");
@@ -140,8 +188,13 @@ void setup() {
   // prepare for MQTT connection
   client.setServer(mqttServer, 1883);
   client.setCallback(mqttCallback);
+  Serial.println("Enter data:");
+
   }
 
+/*********************************
+* LOOP
+**********************************/
 void loop() {
   // if not connected to mqtt server, keep trying to reconnect
   if (!client.connected()) {reconnect();}
@@ -149,12 +202,31 @@ void loop() {
   client.loop(); // wait for message packet to come & periodically ping the server
   // to show that ESP8266 is alive, publish a message every 2 seconds to the MQTT broker
   long now = millis();
-  if (now - lastMsg > 2000) {
+  if (now - lastMsg > 4000) {
     lastMsg = now;
     ++value;
     snprintf(msg, 75, "Hello world #%ld", value);
     Serial.print("Publish message: ");
     Serial.println(msg);
     client.publish(outTopic, msg);
+    }
+
+  long now2 = millis();
+  if (now2 - lastMsg > 5000) {
+    lastMsg = now2;
+    screen_display("mtqq:", msg_serial, msg_mtqq);
+    delay(5000);
+  }
+
+  // if serial data available, process it
+  while (Serial.available () > 0){
+    serial_received = Serial.readString();
+    serial_received.trim();
+    Serial.print("Publish message: ");
+    Serial.println(serial_received);
+    snprintf(msg_serial, 75, "serial: %ls", serial_received);
+    client.publish(outTopic, msg_serial);
+    Serial.println("Enter data:");
+    //screen_display("mtqq:", msg_serial, msg_mtqq);
     }
   }
